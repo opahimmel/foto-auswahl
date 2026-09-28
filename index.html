@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Fotoauswahl</title>
+<style>
+  body { margin: 0; font: 16px system-ui, sans-serif; background: #111; color: #eee; }
+  nav { position: sticky; top: 0; display: flex; gap: 8px; padding: 10px; background: #111; z-index: 1; }
+  nav a { flex: 1; text-align: center; padding: 10px; border-radius: 8px; background: #222; color: #eee; text-decoration: none; }
+  nav a.on { background: #eee; color: #111; }
+  #grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; padding: 0 10px 90px; }
+  figure { margin: 0; }
+  img { width: 100%; aspect-ratio: 3/4; object-fit: cover; border-radius: 8px; display: block; background: #222; }
+  button { width: 100%; margin-top: 4px; padding: 12px; font-size: 16px; border: 0; border-radius: 8px; background: #2a7; color: #fff; }
+  button:disabled { background: #333; color: #8c8; }
+  #up { position: fixed; bottom: 16px; left: 16px; right: 16px; padding: 18px; text-align: center; border-radius: 12px; background: #2a7; font-size: 18px; }
+  #up input { display: none; }
+</style>
+</head>
+<body>
+<nav><a href="#">Alle</a><a href="#ausgewaehlt">Ausgewählt (<span id="n">0</span>)</a></nav>
+<div id="grid"></div>
+<label id="up" hidden>📷 Foto hochladen<input type="file" accept="image/*" multiple></label>
+<script type="module">
+import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm'
+const URL = 'https://phpdczcunxstjizrfwpo.supabase.co'
+const sb = createClient(URL, 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBocGRjemN1bnhzdGppenJmd3BvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA1ODk1OTgsImV4cCI6MjEwNjE2NTU5OH0.4H0GyEyK_K_szldvJPZ2DJH3Xw6chWHdbp0pXNo6KkA')
+const grid = document.getElementById('grid'), up = document.getElementById('up')
+let rows = []
+
+async function load() {
+  const { data } = await sb.from('photos').select().order('id', { ascending: false })
+  if (data) { rows = data; render() }
+}
+
+function render() {
+  const sel = location.hash === '#ausgewaehlt'
+  document.querySelectorAll('nav a').forEach(a => a.classList.toggle('on', (a.hash === '#ausgewaehlt') === sel))
+  document.getElementById('n').textContent = rows.filter(r => r.selected).length
+  const show = sel ? rows.filter(r => r.selected) : rows
+  // ponytail: keyed by id so existing <img> are reused and never reload on refresh
+  grid.replaceChildren(...show.map(r => {
+    let f = document.getElementById('p' + r.id)
+    if (!f) {
+      f = document.createElement('figure'); f.id = 'p' + r.id
+      f.innerHTML = '<img loading="lazy"><button>Ja</button>'
+      f.querySelector('img').src = `${URL}/storage/v1/object/public/fotos/${encodeURIComponent(r.path)}`
+      f.querySelector('button').onclick = async e => {
+        e.target.disabled = true
+        const { error } = await sb.from('photos').update({ selected: true }).eq('id', r.id)
+        if (error) { e.target.disabled = false; alert('Fehler, nochmal tippen') } else load()
+      }
+    }
+    const b = f.querySelector('button')
+    if (r.selected) { b.disabled = true; b.textContent = '✓ Ausgewählt' }
+    return f
+  }))
+}
+
+// ponytail: shrink on the phone before upload, ~80 KB each so 60 photos load instantly
+async function shrink(file) {
+  const img = new Image(); img.src = window.URL.createObjectURL(file); await img.decode()
+  const s = Math.min(1, 800 / Math.max(img.naturalWidth, img.naturalHeight))
+  const c = document.createElement('canvas')
+  c.width = img.naturalWidth * s; c.height = img.naturalHeight * s
+  c.getContext('2d').drawImage(img, 0, 0, c.width, c.height)
+  return new Promise(res => c.toBlob(res, 'image/jpeg', 0.75))
+}
+
+// ponytail: ?admin only hides the button, anyone with the anon key could upload; fine for one day
+if (new URLSearchParams(location.search).has('admin')) {
+  up.hidden = false
+  up.querySelector('input').onchange = async e => {
+    for (const file of e.target.files) {
+      up.firstChild.textContent = '⏳ lädt …'
+      const path = crypto.randomUUID() + '.jpg'
+      const { error } = await sb.storage.from('fotos').upload(path, await shrink(file), { contentType: 'image/jpeg' })
+      if (error || (await sb.from('photos').insert({ path })).error) alert('Upload fehlgeschlagen')
+    }
+    e.target.value = ''; up.firstChild.textContent = '📷 Foto hochladen'; load()
+  }
+}
+
+addEventListener('hashchange', render)
+load(); setInterval(load, 3000)
+</script>
+</body>
+</html>
