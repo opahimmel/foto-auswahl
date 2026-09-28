@@ -13,7 +13,9 @@
   figure { margin: 0; }
   img { width: 100%; aspect-ratio: 3/4; object-fit: cover; border-radius: 8px; display: block; background: #222; }
   button { width: 100%; margin-top: 4px; padding: 12px; font-size: 16px; border: 0; border-radius: 8px; background: #2a7; color: #fff; }
-  button:disabled { background: #333; color: #8c8; }
+  button:disabled { opacity: .5; }
+  button.no { background: #333; color: #8c8; }
+  button.del { background: #a33; }
   #up { position: fixed; bottom: 16px; left: 16px; right: 16px; padding: 18px; text-align: center; border-radius: 12px; background: #2a7; font-size: 18px; }
   #up input { display: none; }
 </style>
@@ -27,6 +29,7 @@ import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 const URL = 'https://phpdczcunxstjizrfwpo.supabase.co'
 const sb = createClient(URL, 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBocGRjemN1bnhzdGppenJmd3BvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA1ODk1OTgsImV4cCI6MjEwNjE2NTU5OH0.4H0GyEyK_K_szldvJPZ2DJH3Xw6chWHdbp0pXNo6KkA')
 const grid = document.getElementById('grid'), up = document.getElementById('up')
+const admin = new URLSearchParams(location.search).has('admin')
 let rows = []
 
 async function load() {
@@ -44,16 +47,26 @@ function render() {
     let f = document.getElementById('p' + r.id)
     if (!f) {
       f = document.createElement('figure'); f.id = 'p' + r.id
-      f.innerHTML = '<img loading="lazy"><button>Ja</button>'
+      f.innerHTML = '<img loading="lazy"><button class="ja"></button>' + (admin ? '<button class="del">Löschen</button>' : '')
       f.querySelector('img').src = `${URL}/storage/v1/object/public/fotos/${encodeURIComponent(r.path)}`
-      f.querySelector('button').onclick = async e => {
+      f.querySelector('.ja').onclick = async e => {
         e.target.disabled = true
-        const { error } = await sb.from('photos').update({ selected: true }).eq('id', r.id)
-        if (error) { e.target.disabled = false; alert('Fehler, nochmal tippen') } else load()
+        const cur = rows.find(x => x.id === r.id)
+        const { error } = await sb.from('photos').update({ selected: !cur.selected }).eq('id', r.id)
+        e.target.disabled = false
+        if (error) alert('Fehler, nochmal tippen'); else load()
+      }
+      if (admin) f.querySelector('.del').onclick = async () => {
+        if (!confirm('Foto löschen?')) return
+        const { error } = await sb.from('photos').delete().eq('id', r.id)
+        if (error) return alert('Löschen fehlgeschlagen')
+        await sb.storage.from('fotos').remove([r.path])
+        load()
       }
     }
-    const b = f.querySelector('button')
-    if (r.selected) { b.disabled = true; b.textContent = '✓ Ausgewählt' }
+    const b = f.querySelector('.ja')
+    b.textContent = r.selected ? '✓ Ausgewählt · Nein' : 'Ja'
+    b.classList.toggle('no', r.selected)
     return f
   }))
 }
@@ -69,7 +82,7 @@ async function shrink(file) {
 }
 
 // ponytail: ?admin only hides the button, anyone with the anon key could upload; fine for one day
-if (new URLSearchParams(location.search).has('admin')) {
+if (admin) {
   up.hidden = false
   up.querySelector('input').onchange = async e => {
     for (const file of e.target.files) {
