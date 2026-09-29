@@ -97,8 +97,25 @@ if (admin) {
 }
 
 // PDF of the current view (Alle or Ausgewählt): A4, 4 per row, equal gaps, pages as needed
-document.getElementById('pdf').onclick = async e => {
-  const b = e.target, show = location.hash === '#ausgewaehlt' ? rows.filter(r => r.selected) : rows
+// ponytail: two taps (build, then save) because iOS only allows the share sheet right after a tap
+let pdfFile = null
+const pdfBtn = document.getElementById('pdf')
+addEventListener('hashchange', () => { pdfFile = null; pdfBtn.textContent = '⬇ Download PDF' })
+pdfBtn.onclick = async () => {
+  const b = pdfBtn
+  if (pdfFile) {
+    // iPhone: share sheet → "In Dateien sichern"; Mac/others: normal download with a real filename
+    if (navigator.canShare?.({ files: [pdfFile] })) {
+      try { await navigator.share({ files: [pdfFile] }) } catch {}
+    } else {
+      const a = document.createElement('a'); a.href = window.URL.createObjectURL(pdfFile); a.download = pdfFile.name
+      document.body.append(a); a.click(); a.remove()
+      setTimeout(() => window.URL.revokeObjectURL(a.href), 60000)
+    }
+    pdfFile = null; b.textContent = '⬇ Download PDF' // next tap rebuilds, so the selection is never stale
+    return
+  }
+  const show = location.hash === '#ausgewaehlt' ? rows.filter(r => r.selected) : rows
   if (!show.length) return
   b.disabled = true; b.textContent = '⏳ PDF wird erstellt …'
   try {
@@ -114,9 +131,10 @@ document.getElementById('pdf').onclick = async e => {
       const s = Math.min(W / width, H / height), w = width * s, h = height * s
       doc.addImage(img, 'JPEG', x + (W - w) / 2, y + (H - h) / 2, w, h)
     }
-    doc.save('fotos.pdf')
-  } catch { alert('PDF fehlgeschlagen') }
-  b.disabled = false; b.textContent = '⬇ Download PDF'
+    pdfFile = new File([doc.output('blob')], 'fotos.pdf', { type: 'application/pdf' })
+    b.textContent = '📄 PDF speichern'
+  } catch { alert('PDF fehlgeschlagen'); b.textContent = '⬇ Download PDF' }
+  b.disabled = false
 }
 
 addEventListener('hashchange', render)
