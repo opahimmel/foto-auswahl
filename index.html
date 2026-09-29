@@ -22,6 +22,7 @@
 </head>
 <body>
 <nav><a href="#">Alle</a><a href="#ausgewaehlt">Ausgewählt (<span id="n">0</span>)</a></nav>
+<div style="padding:0 10px 10px"><button id="pdf">⬇ Download PDF</button></div>
 <div id="grid"></div>
 <label id="up" hidden>📷 Foto hochladen<input type="file" accept="image/*" multiple></label>
 <script type="module">
@@ -93,6 +94,29 @@ if (admin) {
     }
     e.target.value = ''; up.firstChild.textContent = '📷 Foto hochladen'; load()
   }
+}
+
+// PDF of the current view (Alle or Ausgewählt): A4, 4 per row, equal gaps, pages as needed
+document.getElementById('pdf').onclick = async e => {
+  const b = e.target, show = location.hash === '#ausgewaehlt' ? rows.filter(r => r.selected) : rows
+  if (!show.length) return
+  b.disabled = true; b.textContent = '⏳ PDF wird erstellt …'
+  try {
+    const { jsPDF } = await import('https://cdn.jsdelivr.net/npm/jspdf@2.5.2/+esm')
+    const doc = new jsPDF({ unit: 'mm', format: 'a4' })
+    const M = 10, G = 5, W = (210 - 2 * M - 3 * G) / 4, H = W * 4 / 3, perPage = 4 * Math.floor((297 - 2 * M + G) / (H + G))
+    for (let i = 0; i < show.length; i++) {
+      if (i && i % perPage === 0) doc.addPage()
+      const k = i % perPage, x = M + (k % 4) * (W + G), y = M + Math.floor(k / 4) * (H + G)
+      const img = new Uint8Array(await (await fetch(`${URL}/storage/v1/object/public/fotos/${encodeURIComponent(show[i].path)}`)).arrayBuffer())
+      const { width, height } = doc.getImageProperties(img)
+      // fit inside the cell without cropping, centered
+      const s = Math.min(W / width, H / height), w = width * s, h = height * s
+      doc.addImage(img, 'JPEG', x + (W - w) / 2, y + (H - h) / 2, w, h)
+    }
+    doc.save('fotos.pdf')
+  } catch { alert('PDF fehlgeschlagen') }
+  b.disabled = false; b.textContent = '⬇ Download PDF'
 }
 
 addEventListener('hashchange', render)
